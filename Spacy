@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Apr 15 21:22:51 2019
+
+@author: JeremyNey
+"""
+
+#https://www.kaggle.com/sudosharma/quick-and-dirty-entity-extractions
+
+
+import pandas as pd
+import spacy
+from spacy.displacy.render import EntityRenderer
+import numpy as np
+import json
+
+df = pd.read_csv("/Users/JeremyNey/Downloads/samplecfd10k_newest.csv", nrows = 100)
+nlp = spacy.load("/Users/JeremyNey/Downloads/en_core_web_sm-2.0.0")
+
+def render_entities(idx, df, options={}, column='named_ents'):
+    text = df['text'][idx]
+    custom_render(nlp(text), df=df, column=column, options=options, idx=idx)
+
+#make all the text lowercase
+lower = lambda x: x.lower() # make everything lowercase
+
+df = pd.DataFrame(df['text'].apply(lower))
+df.columns = ['text']
+
+def extract_named_ents(text):
+    return [(ent.text, ent.start_char, ent.end_char, ent.label_) for ent in nlp(text).ents]
+
+def add_named_ents(df):
+    df['named_ents'] = df['text'].apply(extract_named_ents)    
+
+def extract_noun_phrases(text):
+    return [(chunk.text, chunk.start_char, chunk.end_char, chunk.label_) for chunk in nlp(text).noun_chunks]
+
+#df['noun_phrases'] = df['text'].apply(extract_noun_phrases)
+
+
+def add_noun_phrases(df):
+    df['noun_phrases'] = df['text'].apply(extract_noun_phrases)
+
+#creates new column for noun phrases
+add_noun_phrases(df)
+
+#compounds - this isn't that great
+def extract_compounds(text):
+    comp_idx = 0
+    compound = []
+    compound_nps = []
+    tok_idx = 0
+    for idx, tok in enumerate(nlp(text)):
+        if tok.dep_ == 'compound':
+
+            # capture hyphenated compounds
+            children = ''.join([c.text for c in tok.children])
+            if '-' in children:
+                compound.append(''.join([children, tok.text]))
+            else:
+                compound.append(tok.text)
+
+            # remember starting index of first child in compound or word
+            try:
+                tok_idx = [c for c in tok.children][0].idx
+            except IndexError:
+                if len(compound) == 1:
+                    tok_idx = tok.idx
+            comp_idx = tok.i
+
+        # append the last word in a compound phrase
+        if tok.i - comp_idx == 1:
+            compound.append(tok.text)
+            if len(compound) > 1: 
+                compound = ' '.join(compound)
+                compound_nps.append((compound, tok_idx, tok_idx+len(compound), 'COMPOUND'))
+
+            # reset parameters
+            tok_idx = 0 
+            compound = []
+
+    return compound_nps
+
+#run the function and create a new column
+def add_compounds(df):
+    df['compounds'] = df['text'].apply(extract_compounds)
+#actually add the column
+add_compounds(df)
+
+df['noun_phrases'] = df['text'].apply(extract_noun_phrases)
+
+phrases = df['noun_phrases']
+
+for phrase in phrases:
+    for chunk in phrase:
+        if 'street' in chunk[0]:
+            print (chunk[0])
+
+
+df.to_csv("/Users/JeremyNey/Downloads/samplecfd10k_newest_test2.csv")
